@@ -86,7 +86,7 @@ python sms_forwarder_client.py
 
 首次启动时，程序会自动弹出配置窗口，您需要填写以下信息：
 
-- **服务器地址**：您手机上SmsForwarder服务端的API地址，格式如 `http://192.168.1.100:7001`（支持IPv6）。
+- **服务器地址**：您手机上SmsForwarder服务端的API地址，格式如 `http://192.168.1.13:7001`（支持IPv6）。
 - **API Token**：手机端设置的Token，用于请求签名。如未设置，可留空。
 - **加密方式**：选择与SmsForwarder服务端一致的加密模式（明文 / RSA / SM4）。
   - 选择 **SM4** 时，需提供16字节的密钥。
