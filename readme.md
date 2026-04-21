@@ -127,9 +127,9 @@ python sms_forwarder_client.py
 4. 点击「🔍 查询」按钮，下方表格将列出最近的短信记录。
 5. 双击任意一条记录，即可在弹出的窗口中查看短信完整内容。
 
-![截图](_resources/2026-04-21%20%20SmsForwarder%20Windows%20Client/6360e29e09815f258ad3e74a71c9a9c8_MD5.png)
+![截图](https://iili.io/Br0XS8G.png)
 
-![短信详情窗口](_resources/2026-04-21%20%20SmsForwarder%20Windows%20Client/de41a95680bb319e367e03faf9d52547_MD5.png)
+![短信详情窗口](https://iili.io/Br0haRf.png)
 #### 7.2.2 示例2：发送短信并接收新消息通知
 
 1. 进入「✉️ 发送」标签页，选择要使用的SIM卡槽。
