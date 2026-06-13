@@ -1122,10 +1122,15 @@ class SmsForwarderClient(QMainWindow):
 
             btn_layout = QHBoxLayout()
             copy_content_btn = QPushButton("📋 复制内容")
+            # 对话框是否已关闭的标志
+            dialog_closed = [False]
             def copy_content():
                 QApplication.clipboard().setText(content)
                 copy_content_btn.setText("✅ 已复制")
-                QTimer.singleShot(1500, lambda: copy_content_btn.setText("📋 复制内容"))
+                def restore():
+                    if not dialog_closed[0]:
+                        copy_content_btn.setText("📋 复制内容")
+                QTimer.singleShot(1500, restore)
             copy_content_btn.clicked.connect(copy_content)
             btn_layout.addWidget(copy_content_btn)
             
@@ -1135,7 +1140,10 @@ class SmsForwarderClient(QMainWindow):
                 def copy_code():
                     QApplication.clipboard().setText(verification_code)
                     copy_code_btn.setText("✅ 已复制")
-                    QTimer.singleShot(1500, lambda: copy_code_btn.setText("🔑 复制验证码"))
+                    def restore():
+                        if not dialog_closed[0]:
+                            copy_code_btn.setText("🔑 复制验证码")
+                    QTimer.singleShot(1500, restore)
                 copy_code_btn.clicked.connect(copy_code)
                 btn_layout.addWidget(copy_code_btn)
             
@@ -1159,7 +1167,10 @@ class SmsForwarderClient(QMainWindow):
                         if selected:
                             QApplication.clipboard().setText(selected)
                             copy_candidate_btn.setText("✅")
-                            QTimer.singleShot(1500, lambda: copy_candidate_btn.setText("复制"))
+                            def restore():
+                                if not dialog_closed[0]:
+                                    copy_candidate_btn.setText("复制")
+                            QTimer.singleShot(1500, restore)
                     copy_candidate_btn.clicked.connect(copy_candidate)
                     btn_layout.addWidget(copy_candidate_btn)
             
@@ -1168,6 +1179,12 @@ class SmsForwarderClient(QMainWindow):
             close_btn.clicked.connect(dialog.close)
             btn_layout.addWidget(close_btn)
             layout.addLayout(btn_layout)
+            
+            # 对话框关闭时设置标志
+            def on_dialog_closed():
+                dialog_closed[0] = True
+            dialog.finished.connect(on_dialog_closed)
+            
             dialog.exec()
         except Exception as e:
             QMessageBox.critical(self, "错误", f"显示短信详情时发生错误: {str(e)}")
