@@ -322,6 +322,8 @@ class SettingsDialog(QDialog):
         notify_layout.addRow("轮询间隔:", poll_layout)
         self.close_to_tray = QCheckBox("关闭窗口时最小化到托盘")
         notify_layout.addRow("", self.close_to_tray)
+        self.esc_to_tray = QCheckBox("按 ESC 键最小化到托盘")
+        notify_layout.addRow("", self.esc_to_tray)
         notify_group.setLayout(notify_layout)
         layout.addWidget(notify_group)
 
@@ -396,6 +398,7 @@ class SettingsDialog(QDialog):
         self.notify_enabled.setChecked(settings.value("notify_enabled", False, type=bool))
         self.poll_interval_spin.setValue(settings.value("poll_interval", 30, type=int))
         self.close_to_tray.setChecked(settings.value("close_to_tray", True, type=bool))
+        self.esc_to_tray.setChecked(settings.value("esc_to_tray", True, type=bool))
 
     def save_settings(self):
         settings = QSettings("settings.ini", QSettings.Format.IniFormat)
@@ -407,11 +410,14 @@ class SettingsDialog(QDialog):
         settings.setValue("notify_enabled", self.notify_enabled.isChecked())
         settings.setValue("poll_interval", self.poll_interval_spin.value())
         settings.setValue("close_to_tray", self.close_to_tray.isChecked())
+        settings.setValue("esc_to_tray", self.esc_to_tray.isChecked())
 
     def accept(self):
         self.save_settings()
         if hasattr(self.parent(), '_close_to_tray_setting'):
             self.parent()._close_to_tray_setting = self.close_to_tray.isChecked()
+        if hasattr(self.parent(), '_esc_to_tray_setting'):
+            self.parent()._esc_to_tray_setting = self.esc_to_tray.isChecked()
         super().accept()
 
 
@@ -459,6 +465,7 @@ class SmsForwarderClient(QMainWindow):
         self.last_tray_msg_type = None
         self._polling_new_messages = False
         self._close_to_tray_setting = True
+        self._esc_to_tray_setting = True
         self._tray_blink_timer = None
         self._is_first_poll = True
         self._workers = set()
@@ -985,77 +992,186 @@ class SmsForwarderClient(QMainWindow):
             data["keyword"] = keyword
         self.execute_request("sms/query", data, on_success)
 
+    def _extract_verification_code(self, content: str) -> str:
+        """从短信内容中提取验证码"""
+        import re
+        patterns = [
+            r'验证码[：:是为]?\s*(\d{4,8})',
+            r'验证码是[:：]?\s*(\d{4,8})',
+            r'动态码[：:是为]?\s*(\d{4,8})',
+            r'(?:code|CODE)[：:是为]?\s*(\d{4,8})',
+            r'(\d{4,8})\s*(?:是|为|是你的|为你的|有效期|分钟)',
+            r'随机[验证码动态码]*[：:是为]?\s*(\d{4,8})',
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, content, re.IGNORECASE)
+            if match:
+                return match.group(1)
+        return ""
+
+    def _extract_candidate_codes(self, content: str) -> list:
+        """提取所有可能的数字序列作为候选验证码"""
+        import re
+        # 提取所有4-8位数字序列
+        candidate_pattern = r'(\d{4,8})'
+        candidates = re.findall(candidate_pattern, content)
+        # 去重并保持顺序
+        seen = set()
+        unique_candidates = []
+        for code in candidates:
+            if code not in seen:
+                seen.add(code)
+                unique_candidates.append(code)
+        return unique_candidates
+
     def show_sms_detail(self):
-        selected = self.sms_table.selectedItems()
-        if not selected:
-            return
-        row = selected[0].row()
-        if not hasattr(self, '_current_sms_data') or row >= len(self._current_sms_data):
-            QMessageBox.warning(self, "提示", "无法获取短信详情")
-            return
-        sms = self._current_sms_data[row]
+        try:
+            selected = self.sms_table.selectedItems()
+            if not selected:
+                return
+            row = selected[0].row()
+            if not hasattr(self, '_current_sms_data') or row >= len(self._current_sms_data):
+                QMessageBox.warning(self, "提示", "无法获取短信详情")
+                return
+            sms = self._current_sms_data[row]
 
-        dialog = QDialog(self)
-        dialog.setWindowTitle("📨 短信详情")
-        dialog.setMinimumWidth(550)
-        dialog.setMinimumHeight(350)
-        layout = QVBoxLayout(dialog)
-        layout.setSpacing(12)
-        layout.setContentsMargins(16, 16, 16, 16)
+            dialog = QDialog(self)
+            dialog.setWindowTitle("📨 短信详情")
+            dialog.setMinimumWidth(550)
+            dialog.setMinimumHeight(350)
+            layout = QVBoxLayout(dialog)
+            layout.setSpacing(12)
+            layout.setContentsMargins(16, 16, 16, 16)
 
-        date_str = datetime.fromtimestamp(sms.get("date", 0) / 1000).strftime("%Y-%m-%d %H:%M:%S")
-        number = sms.get("number", "未知")
-        name = sms.get("name", "未知")
-        content = sms.get("content", "")
-        sim_id = sms.get("sim_id", -1)
-        sim_text = f"SIM{sim_id + 1}" if sim_id >= 0 else "未知"
-        type_text = "接收" if sms.get("type", 1) == 1 else "发送"
+            date_str = datetime.fromtimestamp(sms.get("date", 0) / 1000).strftime("%Y-%m-%d %H:%M:%S")
+            number = sms.get("number", "未知")
+            name = sms.get("name", "未知")
+            content = sms.get("content", "")
+            sim_id = sms.get("sim_id", -1)
+            sim_text = f"SIM{sim_id + 1}" if sim_id >= 0 else "未知"
+            type_text = "接收" if sms.get("type", 1) == 1 else "发送"
 
-        detail_html = f"""
-        <div style= padding: 8px;">
-            <div style="background-color: #f9fafb; border-radius: 8px; padding: 16px; margin-bottom: 12px;">
-                <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-                    <span style="color: #6b7280;">类型:</span>
-                    <span style="font-weight: 600;">{type_text}</span>
+            # 提取验证码
+            verification_code = self._extract_verification_code(content)
+            candidate_codes = self._extract_candidate_codes(content)
+            # 如果没有精确验证码，但有候选验证码，使用第一个候选作为验证码
+            if not verification_code and candidate_codes:
+                verification_code = candidate_codes[0]
+
+            verification_html = ""
+            if verification_code:
+                verification_html = f"""
+                <div style="background-color: #fef3c7; border-left: 4px solid #f59e0b; border-radius: 6px; padding: 12px; margin-bottom: 12px;">
+                    <div style="color: #92400e; font-weight: 600;">🔑 验证码</div>
+                    <div style="font-size: 28px; font-weight: bold; color: #1f2937; letter-spacing: 4px; margin-top: 4px;">{verification_code}</div>
                 </div>
-                <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-                    <span style="color: #6b7280;">号码:</span>
-                    <span style="font-weight: 600;">{number}</span>
+                """
+
+            # 构建候选数字显示区域（不太明显）
+            candidate_html = ""
+            if candidate_codes and len(candidate_codes) > 1:
+                # 去掉已经作为验证码显示的第一个候选
+                other_candidates = [code for code in candidate_codes if code != verification_code]
+                if other_candidates:
+                    candidate_items = ""
+                    for code in other_candidates[:5]:  # 最多显示5个候选
+                        candidate_items += f'<span style="background-color: #e5e7eb; padding: 2px 6px; border-radius: 3px; margin-right: 4px; font-size: 11px;">{code}</span>'
+                    candidate_html = f"""
+                    <div style="background-color: #f9fafb; border-left: 3px solid #d1d5db; border-radius: 4px; padding: 8px; margin-bottom: 12px; font-size: 12px; color: #6b7280;">
+                        <div style="margin-bottom: 4px;">📋 其他数字序列:</div>
+                        <div>{candidate_items}</div>
+                    </div>
+                    """
+
+            detail_html = f"""
+            <div style="padding: 8px;">
+                <div style="background-color: #f9fafb; border-radius: 8px; padding: 16px; margin-bottom: 12px;">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                        <span style="color: #6b7280;">类型:</span>
+                        <span style="font-weight: 600;">{type_text}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                        <span style="color: #6b7280;">号码:</span>
+                        <span style="font-weight: 600;">{number}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                        <span style="color: #6b7280;">姓名:</span>
+                        <span style="font-weight: 600;">{name}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                        <span style="color: #6b7280;">卡槽:</span>
+                        <span style="font-weight: 600;">{sim_text}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between;">
+                        <span style="color: #6b7280;">时间:</span>
+                        <span style="font-weight: 600;">{date_str}</span>
+                    </div>
                 </div>
-                <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-                    <span style="color: #6b7280;">姓名:</span>
-                    <span style="font-weight: 600;">{name}</span>
-                </div>
-                <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-                    <span style="color: #6b7280;">卡槽:</span>
-                    <span style="font-weight: 600;">{sim_text}</span>
-                </div>
-                <div style="display: flex; justify-content: space-between;">
-                    <span style="color: #6b7280;">时间:</span>
-                    <span style="font-weight: 600;">{date_str}</span>
+                {verification_html}
+                {candidate_html}
+                <div style="background-color: #eff6ff; border-left: 4px solid #3b82f6; border-radius: 6px; padding: 12px;">
+                    <div style="color: #1e40af; font-weight: 600;">短信内容</div>
+                    <div style="white-space: pre-wrap;">{content}</div>
                 </div>
             </div>
-            <div style="background-color: #eff6ff; border-left: 4px solid #3b82f6; border-radius: 6px; padding: 12px;">
-                <div style="color: #1e40af; font-weight: 600;">短信内容</div>
-                <div style="white-space: pre-wrap;">{content}</div>
-            </div>
-        </div>
-        """
-        detail_browser = QTextBrowser()
-        detail_browser.setHtml(detail_html)
-        detail_browser.setStyleSheet("border: none; background: transparent;")
-        layout.addWidget(detail_browser)
+            """
+            detail_browser = QTextBrowser()
+            detail_browser.setHtml(detail_html)
+            detail_browser.setStyleSheet("border: none; background: transparent;")
+            layout.addWidget(detail_browser)
 
-        btn_layout = QHBoxLayout()
-        copy_btn = QPushButton("📋 复制内容")
-        copy_btn.clicked.connect(lambda: QApplication.clipboard().setText(content))
-        btn_layout.addWidget(copy_btn)
-        btn_layout.addStretch()
-        close_btn = QPushButton("关闭")
-        close_btn.clicked.connect(dialog.close)
-        btn_layout.addWidget(close_btn)
-        layout.addLayout(btn_layout)
-        dialog.exec()
+            btn_layout = QHBoxLayout()
+            copy_content_btn = QPushButton("📋 复制内容")
+            def copy_content():
+                QApplication.clipboard().setText(content)
+                copy_content_btn.setText("✅ 已复制")
+                QTimer.singleShot(1500, lambda: copy_content_btn.setText("📋 复制内容"))
+            copy_content_btn.clicked.connect(copy_content)
+            btn_layout.addWidget(copy_content_btn)
+            
+            if verification_code:
+                copy_code_btn = QPushButton("🔑 复制验证码")
+                copy_code_btn.setStyleSheet("background-color: #f59e0b; color: white;")
+                def copy_code():
+                    QApplication.clipboard().setText(verification_code)
+                    copy_code_btn.setText("✅ 已复制")
+                    QTimer.singleShot(1500, lambda: copy_code_btn.setText("🔑 复制验证码"))
+                copy_code_btn.clicked.connect(copy_code)
+                btn_layout.addWidget(copy_code_btn)
+            
+            # 添加候选数字选择和复制功能
+            if candidate_codes and len(candidate_codes) > 1:
+                other_candidates = [code for code in candidate_codes if code != verification_code]
+                if other_candidates:
+                    # 创建候选数字下拉框
+                    candidate_combo = QComboBox()
+                    candidate_combo.addItems(other_candidates[:5])
+                    candidate_combo.setMaximumWidth(120)
+                    candidate_combo.setStyleSheet("QComboBox { padding: 4px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 12px; }")
+                    btn_layout.addWidget(QLabel("候选数字:"))
+                    btn_layout.addWidget(candidate_combo)
+                    
+                    # 复制选中候选数字的按钮
+                    copy_candidate_btn = QPushButton("复制")
+                    copy_candidate_btn.setStyleSheet("background-color: #9ca3af; color: white; padding: 4px 8px;")
+                    def copy_candidate():
+                        selected = candidate_combo.currentText()
+                        if selected:
+                            QApplication.clipboard().setText(selected)
+                            copy_candidate_btn.setText("✅")
+                            QTimer.singleShot(1500, lambda: copy_candidate_btn.setText("复制"))
+                    copy_candidate_btn.clicked.connect(copy_candidate)
+                    btn_layout.addWidget(copy_candidate_btn)
+            
+            btn_layout.addStretch()
+            close_btn = QPushButton("关闭")
+            close_btn.clicked.connect(dialog.close)
+            btn_layout.addWidget(close_btn)
+            layout.addLayout(btn_layout)
+            dialog.exec()
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"显示短信详情时发生错误: {str(e)}")
+            self.log_message(f"显示短信详情错误: {str(e)}")
 
     def query_calls(self):
         def on_success(result):
@@ -1626,6 +1742,7 @@ class SmsForwarderClient(QMainWindow):
         self.poll_interval_spin.setValue(settings.value("poll_interval", 30, type=int))
         self.last_sms_timestamp = settings.value("last_sms_timestamp", 0, type=int)
         self._close_to_tray_setting = settings.value("close_to_tray", True, type=bool)
+        self._esc_to_tray_setting = settings.value("esc_to_tray", True, type=bool)
         self._load_view_config()
         self.log_message("配置加载完成")
 
@@ -1640,6 +1757,7 @@ class SmsForwarderClient(QMainWindow):
         settings.setValue("poll_interval", self.poll_interval_spin.value())
         settings.setValue("last_sms_timestamp", self.last_sms_timestamp)
         settings.setValue("close_to_tray", self._close_to_tray_setting)
+        settings.setValue("esc_to_tray", self._esc_to_tray_setting)
         self._save_view_config_to_settings()
         self.log_message("配置已保存")
 
@@ -1652,6 +1770,16 @@ class SmsForwarderClient(QMainWindow):
             self.save_settings()
             QApplication.quit()
             event.accept()
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Escape:
+            if self._esc_to_tray_setting:
+                self.hide()
+                self.log_message("按ESC键最小化到托盘")
+            else:
+                event.ignore()
+        else:
+            super().keyPressEvent(event)
 
     def show_normal(self):
         self._stop_tray_blink()
