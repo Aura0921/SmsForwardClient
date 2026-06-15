@@ -963,21 +963,13 @@ class SmsForwarderClient(QMainWindow):
         def on_success(result):
             if result.get("code") == 200:
                 data = result.get("data", [])
-                self.sms_table.setRowCount(len(data))
-                self._current_sms_data = data
+                # 更新时间戳
                 if data:
                     latest_ts = max(sms.get("date", 0) for sms in data)
                     if latest_ts > self.last_sms_timestamp:
                         self.last_sms_timestamp = latest_ts
-                for row, sms in enumerate(data):
-                    date_str = datetime.fromtimestamp(sms.get("date", 0) / 1000).strftime("%Y-%m-%d %H:%M:%S")
-                    self.sms_table.setItem(row, 0, QTableWidgetItem(date_str))
-                    self.sms_table.setItem(row, 1, QTableWidgetItem(sms.get("number", "")))
-                    self.sms_table.setItem(row, 2, QTableWidgetItem(sms.get("name", "未知")))
-                    self.sms_table.setItem(row, 3, QTableWidgetItem(sms.get("content", "")))
-                    sim_id = sms.get("sim_id", -1)
-                    sim_text = f"SIM{sim_id + 1}" if sim_id >= 0 else "未知"
-                    self.sms_table.setItem(row, 4, QTableWidgetItem(sim_text))
+                # 使用公共方法更新表格
+                self._update_sms_table(data)
                 self.status_bar.showMessage(f"共 {len(data)} 条记录")
             else:
                 QMessageBox.warning(self, "查询失败", result.get("msg", "未知错误"))
@@ -1701,16 +1693,23 @@ class SmsForwarderClient(QMainWindow):
                                     name = sms.get("name", "未知")
                                     self.log_message(f"[轮询发现] 新短信: {name} {number}")
                                     if self.tray_icon and self.tray_icon.isVisible():
-                                        msg = f"来自 {name} ({number})\n{content}"
+                                        # 截断过长的短信内容，保留前50个字符
+                                        display_content = content[:50] + "..." if len(content) > 50 else content
+                                        msg = f"来自 {name} ({number})\n{display_content}"
                                         self.last_tray_msg_type = "sms"
                                         try:
                                             self.tray_icon.showMessage("新短信", msg,
                                                                        QSystemTrayIcon.MessageIcon.Information, 5000)
-                                        except:
-                                            pass
+                                        except Exception as e:
+                                            self.log_message(f"显示通知失败: {e}")
                                         self._start_tray_blink()
+                                # 窗口可见时自动刷新并滚动到最新
                                 if self.isVisible():
-                                    self.query_sms()
+                                    def refresh_ui():
+                                        self.sms_type_combo.setCurrentIndex(0)  # 切换到接收类型
+                                        self.query_sms()
+                                        self.sms_table.scrollToTop()
+                                    QTimer.singleShot(100, refresh_ui)
             finally:
                 finish()
 
@@ -1818,7 +1817,7 @@ class SmsForwarderClient(QMainWindow):
                 if hasattr(w, 'isRunning') and w.isRunning():
                     w.terminate()
                     w.wait(2000)
-            except:
+            except Exception:
                 pass
             self._workers.discard(w)
         if self.tray_icon:
@@ -1894,13 +1893,36 @@ class SmsForwarderClient(QMainWindow):
             QTimer.singleShot(200, self._refresh_and_show_latest_sms)
         self.last_tray_msg_type = None
 
+    def _update_sms_table(self, data):
+        """更新短信表格数据的公共方法"""
+        self.sms_table.setRowCount(len(data))
+        self._current_sms_data = data
+        for row, sms in enumerate(data):
+            date_str = datetime.fromtimestamp(sms.get("date", 0) / 1000).strftime("%Y-%m-%d %H:%M:%S")
+            self.sms_table.setItem(row, 0, QTableWidgetItem(date_str))
+            self.sms_table.setItem(row, 1, QTableWidgetItem(sms.get("number", "")))
+            self.sms_table.setItem(row, 2, QTableWidgetItem(sms.get("name", "未知")))
+            self.sms_table.setItem(row, 3, QTableWidgetItem(sms.get("content", "")))
+            sim_id = sms.get("sim_id", -1)
+            sim_text = f"SIM{sim_id + 1}" if sim_id >= 0 else "未知"
+            self.sms_table.setItem(row, 4, QTableWidgetItem(sim_text))
+
     def _refresh_and_show_latest_sms(self):
         def on_success(result):
-            if result.get("code") == 200 and result.get("data"):
-                self.sms_table.selectRow(0)
-                QTimer.singleShot(300, self.show_sms_detail)
+            if result.get("code") == 200:
+                data = result.get("data", [])
+                # 使用公共方法更新表格数据
+                self._update_sms_table(data)
+                # 同步更新短信类型下拉框为"接收"
+                self.sms_type_combo.setCurrentIndex(0)
+                # 选择第一行并显示详情
+                if data:
+                    self.sms_table.scrollToTop()
+                    self.sms_table.selectRow(0)
+                    QTimer.singleShot(300, self.show_sms_detail)
 
-        data = {"type": self.sms_type_combo.currentData(), "page_num": 1, "page_size": 20}
+        # 固定查询接收的短信(type=1)，与通知逻辑保持一致
+        data = {"type": 1, "page_num": 1, "page_size": 20}
         worker = self.create_worker("sms/query", data)
         if worker:
             worker.finished.connect(on_success)
