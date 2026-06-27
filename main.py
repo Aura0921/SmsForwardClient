@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QComboBox, QTextEdit, QTextBrowser,
     QSpinBox, QMessageBox, QHeaderView, QFormLayout,
     QSystemTrayIcon, QMenu, QCheckBox, QStyle, QSpinBox,
-    QToolButton, QDialog, QDialogButtonBox, QFileDialog
+    QToolButton, QDialog, QDialogButtonBox, QFileDialog, QRadioButton
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSettings, QTimer, QByteArray
 from PyQt6.QtGui import QIcon, QAction, QFont, QPixmap
@@ -455,6 +455,264 @@ class LogDialog(QDialog):
         layout.addLayout(btn_layout)
 
 
+class NotificationRulesDialog(QDialog):
+    def __init__(self, parent=None, rules=None):
+        super().__init__(parent)
+        self.rules = rules if rules else {}
+        self.setWindowTitle("🔔 通知规则配置")
+        self.setMinimumWidth(650)
+        self.setMinimumHeight(600)
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(12)
+        layout.setContentsMargins(16, 16, 16, 16)
+
+        tab_widget = QTabWidget()
+
+        sms_tab = self._create_sms_tab()
+        tab_widget.addTab(sms_tab, "📨 短信规则")
+
+        call_tab = self._create_call_tab()
+        tab_widget.addTab(call_tab, "📞 通话规则")
+
+        battery_tab = self._create_battery_tab()
+        tab_widget.addTab(battery_tab, "🔋 电量规则")
+
+        layout.addWidget(tab_widget)
+
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("✅ 保存")
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("❌ 取消")
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        btn_layout.addWidget(buttons)
+        layout.addLayout(btn_layout)
+
+        self._load_rules()
+
+    def _create_sms_tab(self):
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setSpacing(10)
+
+        self.sms_enabled = QCheckBox("启用短信通知")
+        layout.addWidget(self.sms_enabled)
+
+        mode_group = QGroupBox("号码过滤模式")
+        mode_layout = QVBoxLayout()
+        self.sms_mode_all = QRadioButton("全部通知")
+        self.sms_mode_whitelist = QRadioButton("白名单模式（仅通知列表中的号码）")
+        self.sms_mode_blacklist = QRadioButton("黑名单模式（屏蔽列表中的号码）")
+        mode_layout.addWidget(self.sms_mode_all)
+        mode_layout.addWidget(self.sms_mode_whitelist)
+        mode_layout.addWidget(self.sms_mode_blacklist)
+        mode_group.setLayout(mode_layout)
+        layout.addWidget(mode_group)
+
+        list_group = QGroupBox("号码列表（每行一个，支持部分匹配）")
+        list_layout = QVBoxLayout()
+        self.sms_number_list = QTextEdit()
+        self.sms_number_list.setMaximumHeight(120)
+        self.sms_number_list.setPlaceholderText("例如:\n10086\n95588\n13800138000")
+        list_layout.addWidget(self.sms_number_list)
+        list_group.setLayout(list_layout)
+        layout.addWidget(list_group)
+
+        keyword_group = QGroupBox("关键字过滤")
+        keyword_layout = QHBoxLayout()
+        keyword_layout.addWidget(QLabel("仅通知包含以下关键字的短信（留空则不过滤）:"))
+        self.sms_keyword = QLineEdit()
+        self.sms_keyword.setPlaceholderText("如: 验证码、快递、银行")
+        keyword_layout.addWidget(self.sms_keyword)
+        keyword_group.setLayout(keyword_layout)
+        layout.addWidget(keyword_group)
+
+        layout.addStretch()
+        return tab
+
+    def _create_call_tab(self):
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setSpacing(10)
+
+        self.call_enabled = QCheckBox("启用通话通知")
+        layout.addWidget(self.call_enabled)
+
+        type_group = QGroupBox("通知的通话类型")
+        type_layout = QVBoxLayout()
+        self.call_type_incoming = QCheckBox("呼入")
+        self.call_type_outgoing = QCheckBox("呼出")
+        self.call_type_missed = QCheckBox("未接")
+        type_layout.addWidget(self.call_type_incoming)
+        type_layout.addWidget(self.call_type_outgoing)
+        type_layout.addWidget(self.call_type_missed)
+        type_group.setLayout(type_layout)
+        layout.addWidget(type_group)
+
+        self.call_unknown_only = QCheckBox("仅通知未知联系人来电")
+        layout.addWidget(self.call_unknown_only)
+
+        mode_group = QGroupBox("号码过滤模式")
+        mode_layout = QVBoxLayout()
+        self.call_mode_all = QRadioButton("全部通知")
+        self.call_mode_whitelist = QRadioButton("白名单模式（仅通知列表中的号码）")
+        self.call_mode_blacklist = QRadioButton("黑名单模式（屏蔽列表中的号码）")
+        mode_layout.addWidget(self.call_mode_all)
+        mode_layout.addWidget(self.call_mode_whitelist)
+        mode_layout.addWidget(self.call_mode_blacklist)
+        mode_group.setLayout(mode_layout)
+        layout.addWidget(mode_group)
+
+        list_group = QGroupBox("号码列表（每行一个，支持部分匹配）")
+        list_layout = QVBoxLayout()
+        self.call_number_list = QTextEdit()
+        self.call_number_list.setMaximumHeight(120)
+        self.call_number_list.setPlaceholderText("例如:\n10086\n95588\n13800138000")
+        list_layout.addWidget(self.call_number_list)
+        list_group.setLayout(list_layout)
+        layout.addWidget(list_group)
+
+        layout.addStretch()
+        return tab
+
+    def _create_battery_tab(self):
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setSpacing(10)
+
+        self.battery_enabled = QCheckBox("启用电量通知")
+        layout.addWidget(self.battery_enabled)
+
+        threshold_group = QGroupBox("电量阈值设置")
+        threshold_layout = QFormLayout()
+        self.battery_warning_threshold = QSpinBox()
+        self.battery_warning_threshold.setRange(15, 80)
+        self.battery_warning_threshold.setValue(30)
+        self.battery_warning_threshold.setSuffix("%")
+        threshold_layout.addRow("预警阈值:", self.battery_warning_threshold)
+        warning_hint = QLabel("电量低于此值时发送预警提醒")
+        warning_hint.setStyleSheet("color: #6b7280; font-size: 11px; margin-left: 80px;")
+        threshold_layout.addRow("", warning_hint)
+
+        self.battery_threshold = QSpinBox()
+        self.battery_threshold.setRange(5, 50)
+        self.battery_threshold.setValue(20)
+        self.battery_threshold.setSuffix("%")
+        threshold_layout.addRow("低电量阈值:", self.battery_threshold)
+        low_hint = QLabel("电量低于此值时发送紧急提醒")
+        low_hint.setStyleSheet("color: #ef4444; font-size: 11px; margin-left: 80px;")
+        threshold_layout.addRow("", low_hint)
+
+        threshold_group.setLayout(threshold_layout)
+        layout.addWidget(threshold_group)
+
+        self.battery_full_notify = QCheckBox("充满电时也发送通知")
+        layout.addWidget(self.battery_full_notify)
+
+        info_label = QLabel(
+            "💡 提示：电量通知会在每次轮询时检查，\n"
+            "仅当电量低于阈值或从低于阈值恢复到100%时才会提醒，\n"
+            "不会重复提醒同一电量水平。\n"
+            "预警阈值应大于低电量阈值，否则仅触发低电量提醒。"
+        )
+        info_label.setWordWrap(True)
+        info_label.setStyleSheet("color: #6b7280; padding: 8px; background-color: #f9fafb; border-radius: 6px;")
+        layout.addWidget(info_label)
+
+        layout.addStretch()
+        return tab
+
+    def _load_rules(self):
+        sms_rules = self.rules.get("sms", {})
+        self.sms_enabled.setChecked(sms_rules.get("enabled", True))
+        mode = sms_rules.get("mode", "all")
+        if mode == "whitelist":
+            self.sms_mode_whitelist.setChecked(True)
+        elif mode == "blacklist":
+            self.sms_mode_blacklist.setChecked(True)
+        else:
+            self.sms_mode_all.setChecked(True)
+        numbers = sms_rules.get("whitelist", []) + sms_rules.get("blacklist", [])
+        self.sms_number_list.setText("\n".join(numbers))
+        self.sms_keyword.setText(sms_rules.get("keyword_filter", ""))
+
+        call_rules = self.rules.get("call", {})
+        self.call_enabled.setChecked(call_rules.get("enabled", True))
+        notify_types = call_rules.get("notify_types", [1, 3])
+        if 1 in notify_types:
+            self.call_type_incoming.setChecked(True)
+        if 2 in notify_types:
+            self.call_type_outgoing.setChecked(True)
+        if 3 in notify_types:
+            self.call_type_missed.setChecked(True)
+        self.call_unknown_only.setChecked(call_rules.get("unknown_only", False))
+        call_mode = call_rules.get("mode", "all")
+        if call_mode == "whitelist":
+            self.call_mode_whitelist.setChecked(True)
+        elif call_mode == "blacklist":
+            self.call_mode_blacklist.setChecked(True)
+        else:
+            self.call_mode_all.setChecked(True)
+        call_numbers = call_rules.get("whitelist", []) + call_rules.get("blacklist", [])
+        self.call_number_list.setText("\n".join(call_numbers))
+
+        battery_rules = self.rules.get("battery", {})
+        self.battery_enabled.setChecked(battery_rules.get("enabled", True))
+        self.battery_warning_threshold.setValue(battery_rules.get("warning_threshold", 30))
+        self.battery_threshold.setValue(battery_rules.get("low_threshold", 20))
+        self.battery_full_notify.setChecked(battery_rules.get("full_notify", False))
+
+    def get_rules(self):
+        sms_numbers = [n.strip() for n in self.sms_number_list.toPlainText().split("\n") if n.strip()]
+        call_numbers = [n.strip() for n in self.call_number_list.toPlainText().split("\n") if n.strip()]
+
+        sms_mode = "all"
+        if self.sms_mode_whitelist.isChecked():
+            sms_mode = "whitelist"
+        elif self.sms_mode_blacklist.isChecked():
+            sms_mode = "blacklist"
+
+        call_mode = "all"
+        if self.call_mode_whitelist.isChecked():
+            call_mode = "whitelist"
+        elif self.call_mode_blacklist.isChecked():
+            call_mode = "blacklist"
+
+        notify_types = []
+        if self.call_type_incoming.isChecked():
+            notify_types.append(1)
+        if self.call_type_outgoing.isChecked():
+            notify_types.append(2)
+        if self.call_type_missed.isChecked():
+            notify_types.append(3)
+
+        return {
+            "sms": {
+                "enabled": self.sms_enabled.isChecked(),
+                "mode": sms_mode,
+                "whitelist": sms_numbers if sms_mode == "whitelist" else [],
+                "blacklist": sms_numbers if sms_mode == "blacklist" else [],
+                "keyword_filter": self.sms_keyword.text().strip(),
+            },
+            "call": {
+                "enabled": self.call_enabled.isChecked(),
+                "mode": call_mode,
+                "whitelist": call_numbers if call_mode == "whitelist" else [],
+                "blacklist": call_numbers if call_mode == "blacklist" else [],
+                "notify_types": notify_types,
+                "unknown_only": self.call_unknown_only.isChecked(),
+            },
+            "battery": {
+                "enabled": self.battery_enabled.isChecked(),
+                "warning_threshold": self.battery_warning_threshold.value(),
+                "low_threshold": self.battery_threshold.value(),
+                "full_notify": self.battery_full_notify.isChecked(),
+            }
+        }
+
+
 class SmsForwarderClient(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -462,13 +720,20 @@ class SmsForwarderClient(QMainWindow):
         self.tray_icon = None
         self.notify_timer = None
         self.last_sms_timestamp = 0
+        self.last_call_timestamp = 0
+        self.last_battery_level = -1
         self.last_tray_msg_type = None
         self._polling_new_messages = False
+        self._polling_new_calls = False
+        self._polling_battery = False
         self._close_to_tray_setting = True
         self._esc_to_tray_setting = True
         self._tray_blink_timer = None
         self._is_first_poll = True
+        self._is_first_call_poll = True
+        self._is_first_battery_poll = True
         self._workers = set()
+        self.notification_rules = self._default_notification_rules()
 
         self.url_input = QLineEdit()
         self.token_input = QLineEdit()
@@ -492,6 +757,91 @@ class SmsForwarderClient(QMainWindow):
             QTimer.singleShot(100, self._delayed_show)
         except Exception as e:
             print(f"Init Error: {e}")
+
+    @staticmethod
+    def _default_notification_rules():
+        return {
+            "sms": {
+                "enabled": True,
+                "mode": "all",
+                "whitelist": [],
+                "blacklist": [],
+                "keyword_filter": "",
+            },
+            "call": {
+                "enabled": True,
+                "mode": "all",
+                "whitelist": [],
+                "blacklist": [],
+                "notify_types": [1, 3],
+                "unknown_only": False,
+            },
+            "battery": {
+                "enabled": True,
+                "warning_threshold": 30,
+                "low_threshold": 20,
+                "full_notify": False,
+            }
+        }
+
+    def _should_notify_sms(self, sms: dict) -> bool:
+        rules = self.notification_rules.get("sms", {})
+        if not rules.get("enabled", True):
+            return False
+        number = sms.get("number", "")
+        content = sms.get("content", "")
+        mode = rules.get("mode", "all")
+        if mode == "whitelist":
+            whitelist = rules.get("whitelist", [])
+            if not any(n in number for n in whitelist):
+                return False
+        elif mode == "blacklist":
+            blacklist = rules.get("blacklist", [])
+            if any(n in number for n in blacklist):
+                return False
+        keyword = rules.get("keyword_filter", "").strip()
+        if keyword and keyword not in content:
+            return False
+        return True
+
+    def _should_notify_call(self, call: dict) -> bool:
+        rules = self.notification_rules.get("call", {})
+        if not rules.get("enabled", True):
+            return False
+        number = call.get("number", "")
+        call_type = call.get("type", 0)
+        notify_types = rules.get("notify_types", [1, 3])
+        if call_type not in notify_types:
+            return False
+        if rules.get("unknown_only", False):
+            name = call.get("name", "")
+            if name and name != "未知" and name.strip():
+                return False
+        mode = rules.get("mode", "all")
+        if mode == "whitelist":
+            whitelist = rules.get("whitelist", [])
+            if not any(n in number for n in whitelist):
+                return False
+        elif mode == "blacklist":
+            blacklist = rules.get("blacklist", [])
+            if any(n in number for n in blacklist):
+                return False
+        return True
+
+    def _should_notify_battery(self, level) -> tuple:
+        rules = self.notification_rules.get("battery", {})
+        if not rules.get("enabled", True):
+            return False, ""
+        if isinstance(level, (int, float)):
+            low_threshold = rules.get("low_threshold", 20)
+            warning_threshold = rules.get("warning_threshold", 30)
+            if level <= low_threshold:
+                return True, "low"
+            if level <= warning_threshold:
+                return True, "warning"
+            if rules.get("full_notify", False) and level >= 100:
+                return True, "full"
+        return False, ""
 
     def _load_icon_from_base64(self):
         if not ICON_BASE64:
@@ -591,6 +941,11 @@ class SmsForwarderClient(QMainWindow):
         refresh_action = QAction("🔄 刷新当前页面", self)
         refresh_action.triggered.connect(self.refresh_current_tab)
         tray_menu.addAction(refresh_action)
+        tray_menu.addSeparator()
+
+        notify_rules_action = QAction("🔔 通知规则", self)
+        notify_rules_action.triggered.connect(self.open_notification_rules_dialog)
+        tray_menu.addAction(notify_rules_action)
         tray_menu.addSeparator()
 
         quit_action = QAction("❌ 退出程序", self)
@@ -775,6 +1130,9 @@ class SmsForwarderClient(QMainWindow):
         action_preferences.setShortcut("Ctrl+,")
         action_preferences.triggered.connect(self.open_settings_dialog)
         settings_menu.addAction(action_preferences)
+        action_notify_rules = QAction("🔔 通知规则", self)
+        action_notify_rules.triggered.connect(self.open_notification_rules_dialog)
+        settings_menu.addAction(action_notify_rules)
         action_logs = QAction("📋 查看日志", self)
         action_logs.setShortcut("Ctrl+L")
         action_logs.triggered.connect(self.show_log_dialog)
@@ -881,6 +1239,13 @@ class SmsForwarderClient(QMainWindow):
             self.load_settings()
             QMessageBox.information(self, "设置", "✅ 设置已保存")
 
+    def open_notification_rules_dialog(self):
+        dlg = NotificationRulesDialog(self, rules=self.notification_rules)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self.notification_rules = dlg.get_rules()
+            self.save_settings()
+            QMessageBox.information(self, "通知规则", "✅ 通知规则已保存")
+
     def show_first_run_dialog(self):
         dlg = SettingsDialog(self, is_first_run=True)
         if dlg.exec() == QDialog.DialogCode.Accepted:
@@ -890,14 +1255,16 @@ class SmsForwarderClient(QMainWindow):
     def show_about(self):
         about_text = f"""
         <h2>{APP_CONFIG['app_name']}</h2>
-        <p>版本: 2.1</p>
+        <p>版本: 2.2</p>
         <p>作者：www.52pojie.cn Cristy</p>
         <p>功能特点:</p>
         <ul>
             <li>✨ 现代化 Fluent UI 设计</li>
             <li>🔒 兼容官方/RSA/SM4 加密</li>
             <li>📊 数据导出为 CSV</li>
-            <li>🔔 新消息托盘通知</li>
+            <li>🔔 短信/通话/电量托盘通知</li>
+            <li>📋 短信和通话通知规则配置</li>
+            <li>🔋 低电量/充满电提醒</li>
         </ul>
         <p>© 2026 Aura Service</p>
         """
@@ -1380,7 +1747,11 @@ class SmsForwarderClient(QMainWindow):
         self.sms_table = QTableWidget()
         self.sms_table.setColumnCount(5)
         self.sms_table.setHorizontalHeaderLabels(["⏰ 时间", "📱 号码", "👤 姓名", "💬 内容", "📡 卡槽"])
+        self.sms_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        self.sms_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        self.sms_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         self.sms_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        self.sms_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         self.sms_table.setAlternatingRowColors(True)
         self.sms_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.sms_table.doubleClicked.connect(self.show_sms_detail)
@@ -1432,7 +1803,11 @@ class SmsForwarderClient(QMainWindow):
         self.call_table = QTableWidget()
         self.call_table.setColumnCount(5)
         self.call_table.setHorizontalHeaderLabels(["⏰ 时间", "📱 号码", "📞 类型", "⏱️ 时长(秒)", "📡 卡槽"])
+        self.call_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         self.call_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self.call_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.call_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        self.call_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         self.call_table.setAlternatingRowColors(True)
         layout.addWidget(self.call_table)
         return tab
@@ -1657,6 +2032,11 @@ class SmsForwarderClient(QMainWindow):
     def check_new_messages(self):
         if not self.notify_enabled.isChecked():
             return
+        self._check_new_sms()
+        self._check_new_calls()
+        self._check_battery_status()
+
+    def _check_new_sms(self):
         if self._polling_new_messages:
             return
         base_url = self.url_input.text().strip()
@@ -1687,13 +2067,16 @@ class SmsForwarderClient(QMainWindow):
                                 if self._is_first_poll:
                                     self._is_first_poll = False
                                     return
+                                notified = False
                                 for sms in new_sms:
+                                    if not self._should_notify_sms(sms):
+                                        self.log_message(f"[轮询] 短信被规则过滤: {sms.get('number', '')}")
+                                        continue
                                     content = sms.get("content", "")
                                     number = sms.get("number", "")
                                     name = sms.get("name", "未知")
                                     self.log_message(f"[轮询发现] 新短信: {name} {number}")
                                     if self.tray_icon and self.tray_icon.isVisible():
-                                        # 截断过长的短信内容，保留前50个字符
                                         display_content = content[:50] + "..." if len(content) > 50 else content
                                         msg = f"来自 {name} ({number})\n{display_content}"
                                         self.last_tray_msg_type = "sms"
@@ -1702,11 +2085,12 @@ class SmsForwarderClient(QMainWindow):
                                                                        QSystemTrayIcon.MessageIcon.Information, 5000)
                                         except Exception as e:
                                             self.log_message(f"显示通知失败: {e}")
-                                        self._start_tray_blink()
-                                # 窗口可见时自动刷新并滚动到最新
+                                        notified = True
+                                if notified:
+                                    self._start_tray_blink()
                                 if self.isVisible():
                                     def refresh_ui():
-                                        self.sms_type_combo.setCurrentIndex(0)  # 切换到接收类型
+                                        self.sms_type_combo.setCurrentIndex(0)
                                         self.query_sms()
                                         self.sms_table.scrollToTop()
                                     QTimer.singleShot(100, refresh_ui)
@@ -1723,6 +2107,146 @@ class SmsForwarderClient(QMainWindow):
             finish()
 
         worker = self.create_worker("sms/query", data)
+        if worker:
+            worker.finished.connect(on_success)
+            worker.error.connect(on_error)
+            worker.start()
+        else:
+            finish()
+
+    def _check_new_calls(self):
+        if self._polling_new_calls:
+            return
+        base_url = self.url_input.text().strip()
+        if not base_url:
+            return
+        current_mode = self.get_current_mode()
+        if current_mode == EncryptionMode.SM4 and not self.sm4_key_input.text().strip():
+            return
+        if current_mode == EncryptionMode.RSA and not self.rsa_pubkey_input.toPlainText().strip():
+            return
+
+        self._polling_new_calls = True
+        data = {"type": 0, "page_num": 1, "page_size": 10}
+
+        def finish():
+            self._polling_new_calls = False
+
+        def on_success(result):
+            try:
+                if result.get("code") == 200:
+                    call_list = result.get("data", [])
+                    if call_list:
+                        latest_ts = max(call.get("dateLong", 0) for call in call_list)
+                        if latest_ts > self.last_call_timestamp:
+                            new_calls = [call for call in call_list if call.get("dateLong", 0) > self.last_call_timestamp]
+                            if new_calls:
+                                self.last_call_timestamp = latest_ts
+                                if self._is_first_call_poll:
+                                    self._is_first_call_poll = False
+                                    return
+                                notified = False
+                                for call in new_calls:
+                                    if not self._should_notify_call(call):
+                                        self.log_message(f"[轮询] 通话被规则过滤: {call.get('number', '')}")
+                                        continue
+                                    number = call.get("number", "")
+                                    name = call.get("name", "未知")
+                                    call_type = call.get("type", 0)
+                                    type_map = {1: "呼入", 2: "呼出", 3: "未接"}
+                                    type_text = type_map.get(call_type, "未知")
+                                    duration = call.get("duration", 0)
+                                    self.log_message(f"[轮询发现] 新通话: {type_text} {name} {number}")
+                                    if self.tray_icon and self.tray_icon.isVisible():
+                                        msg = f"{type_text}: {name} ({number})"
+                                        if call_type == 3:
+                                            msg += "\n未接来电！"
+                                        elif call_type in (1, 2) and duration > 0:
+                                            mins, secs = divmod(duration, 60)
+                                            msg += f"\n时长: {mins}分{secs}秒"
+                                        self.last_tray_msg_type = "call"
+                                        try:
+                                            self.tray_icon.showMessage("新通话", msg,
+                                                                       QSystemTrayIcon.MessageIcon.Information, 5000)
+                                        except Exception as e:
+                                            self.log_message(f"显示通知失败: {e}")
+                                        notified = True
+                                if notified:
+                                    self._start_tray_blink()
+                                if self.isVisible():
+                                    QTimer.singleShot(100, self.query_calls)
+            finally:
+                finish()
+
+        def on_error(e):
+            self.log_message(f"[通话轮询异常] {e}")
+            finish()
+
+        worker = self.create_worker("call/query", data)
+        if worker:
+            worker.finished.connect(on_success)
+            worker.error.connect(on_error)
+            worker.start()
+        else:
+            finish()
+
+    def _check_battery_status(self):
+        if self._polling_battery:
+            return
+        base_url = self.url_input.text().strip()
+        if not base_url:
+            return
+        current_mode = self.get_current_mode()
+        if current_mode == EncryptionMode.SM4 and not self.sm4_key_input.text().strip():
+            return
+        if current_mode == EncryptionMode.RSA and not self.rsa_pubkey_input.toPlainText().strip():
+            return
+
+        self._polling_battery = True
+
+        def finish():
+            self._polling_battery = False
+
+        def on_success(result):
+            try:
+                if result.get("code") == 200:
+                    battery_data = result.get("data", {})
+                    level = battery_data.get("level", -1)
+                    if isinstance(level, (int, float)) and level >= 0:
+                        if self._is_first_battery_poll:
+                            self.last_battery_level = level
+                            self._is_first_battery_poll = False
+                            return
+                        if level != self.last_battery_level:
+                            old_level = self.last_battery_level
+                            self.last_battery_level = level
+                            should_notify, notify_type = self._should_notify_battery(level)
+                            if should_notify:
+                                msg = ""
+                                if notify_type == "low":
+                                    msg = f"⚠️ 电量低: {level}%\n请及时充电！"
+                                    self.last_tray_msg_type = "battery_low"
+                                elif notify_type == "warning":
+                                    msg = f"🔋 电量预警: {level}%\n电量偏低，请注意！"
+                                    self.last_tray_msg_type = "battery_warning"
+                                elif notify_type == "full":
+                                    msg = f"✅ 电量已充满: {level}%"
+                                    self.last_tray_msg_type = "battery_full"
+                                if msg and self.tray_icon and self.tray_icon.isVisible():
+                                    self.log_message(f"[轮询发现] 电量变化: {old_level}% -> {level}%")
+                                    icon = QSystemTrayIcon.MessageIcon.Critical if notify_type == "low" else QSystemTrayIcon.MessageIcon.Warning
+                                    try:
+                                        self.tray_icon.showMessage("电量提醒", msg, icon, 5000)
+                                    except Exception as e:
+                                        self.log_message(f"显示通知失败: {e}")
+                                    self._start_tray_blink()
+            finally:
+                finish()
+
+        def on_error(e):
+            finish()
+
+        worker = self.create_worker("battery/query", {})
         if worker:
             worker.finished.connect(on_success)
             worker.error.connect(on_error)
@@ -1757,8 +2281,11 @@ class SmsForwarderClient(QMainWindow):
         self.notify_enabled.setChecked(settings.value("notify_enabled", False, type=bool))
         self.poll_interval_spin.setValue(settings.value("poll_interval", 30, type=int))
         self.last_sms_timestamp = settings.value("last_sms_timestamp", 0, type=int)
+        self.last_call_timestamp = settings.value("last_call_timestamp", 0, type=int)
+        self.last_battery_level = settings.value("last_battery_level", -1, type=int)
         self._close_to_tray_setting = settings.value("close_to_tray", True, type=bool)
         self._esc_to_tray_setting = settings.value("esc_to_tray", True, type=bool)
+        self._load_notification_rules(settings)
         self._load_view_config()
         self.log_message("配置加载完成")
 
@@ -1772,10 +2299,36 @@ class SmsForwarderClient(QMainWindow):
         settings.setValue("notify_enabled", self.notify_enabled.isChecked())
         settings.setValue("poll_interval", self.poll_interval_spin.value())
         settings.setValue("last_sms_timestamp", self.last_sms_timestamp)
+        settings.setValue("last_call_timestamp", self.last_call_timestamp)
+        settings.setValue("last_battery_level", self.last_battery_level)
         settings.setValue("close_to_tray", self._close_to_tray_setting)
         settings.setValue("esc_to_tray", self._esc_to_tray_setting)
+        self._save_notification_rules(settings)
         self._save_view_config_to_settings()
         self.log_message("配置已保存")
+
+    def _load_notification_rules(self, settings: QSettings):
+        rules_json = settings.value("notification_rules", "")
+        if rules_json:
+            try:
+                loaded = json.loads(rules_json)
+                default = self._default_notification_rules()
+                for key in default:
+                    if key in loaded:
+                        if isinstance(default[key], dict) and isinstance(loaded[key], dict):
+                            for sub_key in default[key]:
+                                if sub_key not in loaded[key]:
+                                    loaded[key][sub_key] = default[key][sub_key]
+                        self.notification_rules[key] = loaded[key]
+                    else:
+                        self.notification_rules[key] = default[key]
+            except (json.JSONDecodeError, TypeError):
+                self.notification_rules = self._default_notification_rules()
+        else:
+            self.notification_rules = self._default_notification_rules()
+
+    def _save_notification_rules(self, settings: QSettings):
+        settings.setValue("notification_rules", json.dumps(self.notification_rules, ensure_ascii=False))
 
     def closeEvent(self, event):
         if self._close_to_tray_setting:
@@ -1891,6 +2444,15 @@ class SmsForwarderClient(QMainWindow):
             self.show_normal()
             QTimer.singleShot(100, lambda: self.tab_widget.setCurrentIndex(0))
             QTimer.singleShot(200, self._refresh_and_show_latest_sms)
+        elif self.last_tray_msg_type == "call":
+            self.show_normal()
+            QTimer.singleShot(100, lambda: self.tab_widget.setCurrentIndex(1))
+            QTimer.singleShot(200, self.query_calls)
+        elif self.last_tray_msg_type in ("battery_low", "battery_warning", "battery_full"):
+            self.show_normal()
+            QTimer.singleShot(100, lambda: self.tab_widget.setCurrentIndex(4))
+            if hasattr(self, 'battery_info_text'):
+                QTimer.singleShot(200, lambda: self.query_battery_to_card(self.battery_info_text))
         self.last_tray_msg_type = None
 
     def _update_sms_table(self, data):
